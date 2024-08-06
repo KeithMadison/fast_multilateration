@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 class RayTracer:
-    """A class to model and optimize ray tracing through an ice medium."""
+    """A class to model and optimize ray tracing through an anisotropic ice medium."""
 
     SPEED_OF_LIGHT = 299792458  # Speed of light in meters per second
 
