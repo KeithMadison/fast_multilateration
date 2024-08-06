@@ -78,11 +78,6 @@ class RayTracer:
         x_start = np.hypot(start[0], start[1])
         x_end = np.hypot(end[0], end[1])
 
-        #z_start, z_end = start[2], end[2]
-        #z_min, z_max = min(z_start, z_end), max(z_start, z_end)
-        #random_points = np.random.uniform(z_min, z_max, num_points - 2)
-        #init_path = np.sort(np.concatenate(([z_start], random_points, [z_end])))
-
         init_path = np.linspace(start[2], end[2], num_points)
 
         bounds = [(min(start[2], end[2]) - 10, max(start[2], end[2]) + 10)] * num_points
