@@ -1,100 +1,76 @@
+from dataclasses import dataclass
 import numpy as np
-from scipy.optimize import minimize
 
+@dataclass
 class RayTracer:
-    """A class to model and optimize ray tracing through an anisotropic ice medium."""
+    ice_model: np.ndarray
+    SPEED_OF_LIGHT = 299792458  # Speed of light in m/s
 
-    SPEED_OF_LIGHT = 299792458  # Speed of light in meters per second
+    def _calculate_z_coord(self, x: float, launch_angle: float, x0: float, z0: float) -> float:
+        """Calculate the z-coordinate based on launch angle and other parameters."""
+        A, B, C = self.ice_model
 
-    def __init__(self, ice_model: np.ndarray):
-        """
-        Initialize the RayTracer with a given ice model.
+        exp_Cz0 = np.exp(C * z0)
+        beta = (A - B * exp_Cz0) * np.cos(launch_angle)
+        
+        sqrt_A2_beta2 = np.sqrt(A**2 - beta**2)
+        K = C * sqrt_A2_beta2 / beta
 
-        Parameters:
-        ice_model (np.ndarray): An array where the first element is the
-                                refractive index at sea level, the second
-                                is the attenuation coefficient, and the third
-                                is the depth-dependent coefficient.
-        """
-        self.ice_model = ice_model
+        term1 = A**2 - beta**2
+        term2 = A * B * exp_Cz0
+        sqrt_term = np.sqrt(term1 + 2 * term2 + B**2 * exp_Cz0**2)
 
-    def _refractive_index(self, z: float) -> float:
-        """
-        Compute the refractive index at depth z.
+        # Calculate t
+        t = (sqrt_A2_beta2 * C * x0 - beta * C * z0 +
+             beta * np.log(term1 + term2 + sqrt_A2_beta2 * sqrt_term)) / (sqrt_A2_beta2 * C)
 
-        Parameters:
-        z (float): The depth in meters.
+        # Calculate log_term for return value
+        exp_Kx = np.exp(K * x)
+        exp_Kt = np.exp(K * t)
+        log_term = (2 * term1 * np.exp(K * (t + x))) / (beta**2 * B**2 * exp_Kx**2 - 2 * A * B * exp_Kt + exp_Kt**2)
 
-        Returns:
-        float: The refractive index at depth z.
-        """
-        return self.ice_model[0] - self.ice_model[1] * np.exp(self.ice_model[2] * z)
+        return (1 / C) * np.log(log_term)
 
-    def _propagation_time(self, path: np.ndarray, x_start: float, x_end: float) -> float:
-        """
-        Calculate the total propagation time of a ray along a given path.
+    def _find_launch_angle(self, init_point: np.ndarray, term_point: np.ndarray, num_steps: int = 10000) -> float:
+        """Find the optimal launch angle that minimizes the difference in z-coordinates."""
+        x0 = np.hypot(init_point[0], init_point[1])
+        x1 = np.hypot(term_point[0], term_point[1])
 
-        Parameters:
-        path (np.ndarray): The array of depth values representing the path.
-        x_start (float): The starting distance from the origin.
-        x_end (float): The ending distance from the origin.
+        # Generate launch angles and calculate objective values
+        launch_angles = np.linspace(-np.pi, np.pi, num_steps)
+        objective_values = (self._calculate_z_coord(x1, launch_angles, x0, init_point[2]) - term_point[2])**2
 
-        Returns:
-        float: The total propagation time along the path.
-        """
-        z_points = np.concatenate(([path[0]], path, [path[-1]]))
-        x_points = np.linspace(x_start, x_end, len(z_points))
+        # Return the launch angle that minimizes the objective value
+        return launch_angles[np.argmin(objective_values)]
 
-        def integrand(i: int) -> float:
-            """
-            Compute the integrand for the propagation time calculation.
+    def transit_time(self, init_point: np.ndarray, term_point: np.ndarray) -> float:
+        """Calculate the transit time between two points in the medium."""
+        A, B, C = self.ice_model
+        launch_angle = self._find_launch_angle(init_point, term_point)
 
-            Parameters:
-            i (int): The index of the current segment.
+        beta = np.abs((A - B * np.exp(C * init_point[2])) * np.cos(launch_angle))
+        K = C * np.sqrt(A**2 - beta**2) / beta
 
-            Returns:
-            float: The integrand value for the segment.
-            """
-            dzdx = (z_points[i + 1] - z_points[i]) / (x_points[i + 1] - x_points[i])
-            return (self._refractive_index((z_points[i + 1] + z_points[i]) / 2) / self.SPEED_OF_LIGHT) * np.sqrt(1 + dzdx**2)
+        def time_expression(z: float) -> float:
+            exp_Cz = np.exp(C * z)
+            t = np.sqrt((A + B * exp_Cz - beta) / (A + B * exp_Cz + beta))
+            alpha = np.sqrt((A - beta) / (A + beta))
+            log_expr = np.log(np.abs((t - alpha) / (t + alpha)))
+            return A * np.sqrt((C**2 + K**2) / (C**2 * K**2)) * log_expr
 
-        dx = x_points[1] - x_points[0]
-        return np.sum([integrand(i) for i in range(len(z_points) - 1)]) * dx
+        # Calculate and return the transit time
+        return (time_expression(term_point[2]) - time_expression(init_point[2])) / self.SPEED_OF_LIGHT
 
-    def find_optimal_path(self, start: np.ndarray, end: np.ndarray, num_points: int = 1000) -> tuple:
-        """
-        Find the optimal path that minimizes the propagation time from start to end.
+# Example usage
+if __name__ == "__main__":
+    ray_tracer = RayTracer(np.array([1.78, 0.454, 0.0132]))
 
-        Parameters:
-        start (np.ndarray): Array containing the starting coordinates [x, y, z].
-        end (np.ndarray): Array containing the ending coordinates [x, y, z].
-        num_points (int): Number of points to use in the initial path (default is 100).
+    import time
 
-        Returns:
-        tuple: A tuple containing:
-            - The optimized path (np.ndarray) with depth values.
-            - The total propagation time (float) along the optimized path.
-        """
-        x_start = np.hypot(start[0], start[1])
-        x_end = np.hypot(end[0], end[1])
+    start_time = time.time()  # Start timing
+    transit_time = ray_tracer.transit_time(np.array([-100, -20, -500]), np.array([-30, -10, -250]))
+    end_time = time.time()    # End timing
 
-        init_path = np.linspace(start[2], end[2], num_points)
-
-        bounds = [(min(start[2], end[2]) - 10, max(start[2], end[2]) + 10)] * num_points
-
-        # Define the objective function as a lambda
-        objective = lambda path: self._propagation_time(path, x_start, x_end)
-
-        options = {
-            'maxiter': 2500,
-            'disp': False,  # Do not display optimization progress
-            'ftol': 1e-30
-        }
-
-        # Try a different optimization method
-        result = minimize(objective, init_path, bounds=bounds, method='L-BFGS-B', options=options)
-
-        optimized_path = np.concatenate(([start[2]], result.x, [end[2]]))
-        total_time = self._propagation_time(result.x, x_start, x_end)
-
-        return optimized_path, total_time
+    # Print results
+    print("Transit time:", transit_time)
+    print(f"Elapsed time: {end_time - start_time:.6f} seconds")
