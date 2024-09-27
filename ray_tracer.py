@@ -1,5 +1,9 @@
 from dataclasses import dataclass
+import warnings
 import numpy as np
+
+# Suppress specific warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 @dataclass
 class RayTracer:
@@ -41,7 +45,7 @@ class RayTracer:
         objective_values = (self._calculate_z_coord(x1, launch_angles, x0, init_point[2]) - term_point[2])**2
 
         # Return the launch angle that minimizes the objective value
-        return launch_angles[np.argmin(objective_values)]
+        return launch_angles[np.nanargmin(objective_values)]
 
     def transit_time(self, init_point: np.ndarray, term_point: np.ndarray) -> float:
         """Calculate the transit time between two points in the medium."""
@@ -68,9 +72,10 @@ if __name__ == "__main__":
     import time
 
     start_time = time.time()  # Start timing
-    transit_time = ray_tracer.transit_time(np.array([-100, -20, -500]), np.array([-30, -10, -250]))
+    transit_time = ray_tracer.transit_time(np.array([-10, -20, -500]), np.array([-30, -10, -250]))
     end_time = time.time()    # End timing
 
     # Print results
     print("Transit time:", transit_time)
     print(f"Elapsed time: {end_time - start_time:.6f} seconds")
+
