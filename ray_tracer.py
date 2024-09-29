@@ -2,17 +2,17 @@ from dataclasses import dataclass
 import warnings
 import numpy as np
 
-# Suppress specific warnings
+# Suppress warnings (sometimes there is overflow in _calculate_z_coord, etc.)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 @dataclass
 class RayTracer:
-    ice_model: np.ndarray
+    medium_model: np.ndarray
     SPEED_OF_LIGHT = 299792458  # Speed of light in m/s
 
     def _calculate_z_coord(self, x: np.ndarray, launch_angle: np.ndarray, x0: np.ndarray, z0: np.ndarray) -> np.ndarray:
         """Calculate the z-coordinate based on launch angle and other parameters."""
-        A, B, C = self.ice_model
+        A, B, C = self.medium_model
 
         exp_Cz0 = np.exp(C * z0)
         cos_launch_angle = np.cos(launch_angle)
@@ -42,21 +42,24 @@ class RayTracer:
         x0 = np.hypot(init_points[:, 0], init_points[:, 1])
         x1 = np.hypot(term_points[:, 0], term_points[:, 1])
         
-        # Coarse search followed by a fine search
+        # Coarse search with a fine search
         launch_angles = np.linspace(-np.pi, np.pi, num_steps)
-        best_angles = np.zeros(init_points.shape[0])
 
-        for i in range(init_points.shape[0]):
-            objective_values = (self._calculate_z_coord(x1[i], launch_angles, x0[i], init_points[i, 2]) - term_points[i, 2])**2
-            best_idx = np.nanargmin(objective_values)
-            best_angle = launch_angles[best_idx]
-            best_angles[i] = best_angle
+        # Precompute z_coords for all launch angles
+        z_coords = self._calculate_z_coord(x1[:, np.newaxis], launch_angles, x0[:, np.newaxis], init_points[:, 2, np.newaxis])
+
+        term_z = term_points[:, 2][:, np.newaxis]
+        objective_values = (z_coords - term_z)**2
+
+        # Find the best angles
+        best_indices = np.nanargmin(objective_values, axis=1)
+        best_angles = launch_angles[best_indices]
 
         return best_angles
 
     def transit_time(self, init_points: np.ndarray, term_points: np.ndarray) -> np.ndarray:
         """Calculate the transit time."""
-        A, B, C = self.ice_model
+        A, B, C = self.medium_model
 
         # Vectorized launch angle search
         launch_angles = self._find_launch_angle(init_points, term_points)
@@ -82,7 +85,7 @@ if __name__ == "__main__":
     ray_tracer = RayTracer(np.array([1.78, 0.454, 0.0132]))
 
     # Generate random init_points and term_points
-    num_points = 100000
+    num_points = 50000
     init_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
     term_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
 
@@ -95,4 +98,3 @@ if __name__ == "__main__":
     # Print results
     print("Transit times:", transit_times)
     print(f"Elapsed time: {end_time - start_time:.6f} seconds")
-
