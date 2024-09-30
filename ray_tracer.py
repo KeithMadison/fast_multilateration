@@ -27,33 +27,31 @@ class RayTracer:
 
         # Precompute for efficiency
         log_arg = term1 + term2 + sqrt_A2_beta2 * sqrt_term
-        t = (sqrt_A2_beta2 * C * x0 - beta * C * z0 + beta * np.log(log_arg)) / (sqrt_A2_beta2 * C)
+        t = x0 + (- C * z0 + np.log(log_arg)) / K
 
         exp_Kx = np.exp(K * x)
         exp_Kt = np.exp(K * t)
-        log_term_num = 2 * term1 * np.exp(K * (t + x))
+        log_term_num = 2 * term1 * exp_Kx * exp_Kt
         log_term_den = beta**2 * B**2 * exp_Kx**2 - 2 * A * B * exp_Kt + exp_Kt**2
         log_term = log_term_num / log_term_den
 
         return (1 / C) * np.log(log_term)
 
-    def _find_launch_angle(self, init_points: np.ndarray, term_points: np.ndarray, num_steps: int = 1000) -> np.ndarray:
+    def _find_launch_angle(self, init_points: np.ndarray, term_points: np.ndarray, num_steps: int = 350) -> np.ndarray:
         """Find the optimal launch angle."""
         x0 = np.hypot(init_points[:, 0], init_points[:, 1])
         x1 = np.hypot(term_points[:, 0], term_points[:, 1])
         
-        # Coarse search with a fine search
+        # Coarse search followed by a fine search
         launch_angles = np.linspace(-np.pi, np.pi, num_steps)
+        best_angles = np.zeros(init_points.shape[0])
 
-        # Precompute z_coords for all launch angles
-        z_coords = self._calculate_z_coord(x1[:, np.newaxis], launch_angles, x0[:, np.newaxis], init_points[:, 2, np.newaxis])
-
-        term_z = term_points[:, 2][:, np.newaxis]
-        objective_values = (z_coords - term_z)**2
-
-        # Find the best angles
-        best_indices = np.nanargmin(objective_values, axis=1)
-        best_angles = launch_angles[best_indices]
+        for i in range(init_points.shape[0]):
+            objective_values = (self._calculate_z_coord(x1[i], launch_angles, x0[i], init_points[i, 2]) - term_points[i, 2])**2
+            best_idx = np.nanargmin(objective_values)
+            best_angle = launch_angles[best_idx]
+            best_angles[i] = best_angle
+#             best_angles[i] = -1.34
 
         return best_angles
 
@@ -85,9 +83,12 @@ if __name__ == "__main__":
     ray_tracer = RayTracer(np.array([1.78, 0.454, 0.0132]))
 
     # Generate random init_points and term_points
-    num_points = 50000
-    init_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
-    term_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
+    num_points = 1000
+#    init_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
+#    term_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
+#    transit_time = ray_tracer.transit_time(np.array([-10, -20, -500]), np.array([-30, -10, -250]))
+    init_points = np.array([[-10,-20,-500]])
+    term_points = np.array([[-30,-10,-250]])
 
     import time
 
