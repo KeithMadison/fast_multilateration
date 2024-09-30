@@ -39,19 +39,42 @@ class RayTracer:
 
     def _find_launch_angle(self, init_points: np.ndarray, term_points: np.ndarray, num_steps: int = 350) -> np.ndarray:
         """Find the optimal launch angle."""
-        x0 = np.hypot(init_points[:, 0], init_points[:, 1])
-        x1 = np.hypot(term_points[:, 0], term_points[:, 1])
+        # Project init_points and term_points into 2D while preserving z-coordinates
+        init_proj = np.copy(init_points)
+        term_proj = np.copy(term_points)
+
+        for i in range(init_points.shape[0]):
+            x0, y0, z0 = init_points[i]
+            x1, y1, z1 = term_points[i]
+
+            # Calculate angle theta
+            delta_x = x1 - x0
+            delta_y = y1 - y0
+            theta = np.arctan2(delta_y, delta_x)  # Angle in radians
+
+            # Projected x-coordinates
+            init_proj[i, 0] = np.hypot(delta_x, delta_y) * np.cos(theta)
+            term_proj[i, 0] = np.hypot(delta_x, delta_y) * np.cos(theta)
+            init_proj[i, 1] = 0  # Set y-coordinate to 0 for projection
+            term_proj[i, 1] = 0  # Set y-coordinate to 0 for projection
+
+            # Keep z-coordinates unchanged
+            init_proj[i, 2] = z0
+            term_proj[i, 2] = z1
+
+        # Calculate distances in the projected space
+        x0 = np.hypot(init_proj[:, 0], init_proj[:, 1])
+        x1 = np.hypot(term_proj[:, 0], term_proj[:, 1])
         
         # Coarse search followed by a fine search
         launch_angles = np.linspace(-np.pi, np.pi, num_steps)
         best_angles = np.zeros(init_points.shape[0])
 
         for i in range(init_points.shape[0]):
-            objective_values = (self._calculate_z_coord(x1[i], launch_angles, x0[i], init_points[i, 2]) - term_points[i, 2])**2
+            objective_values = (self._calculate_z_coord(x1[i], launch_angles, x0[i], init_proj[i, 2]) - term_proj[i, 2])**2
             best_idx = np.nanargmin(objective_values)
             best_angle = launch_angles[best_idx]
             best_angles[i] = best_angle
-#             best_angles[i] = -1.34
 
         return best_angles
 
@@ -61,6 +84,8 @@ class RayTracer:
 
         # Vectorized launch angle search
         launch_angles = self._find_launch_angle(init_points, term_points)
+
+        print(launch_angles)
 
         exp_Cz_init = np.exp(C * init_points[:, 2])
         beta = np.abs((A - B * exp_Cz_init) * np.cos(launch_angles))
@@ -84,11 +109,8 @@ if __name__ == "__main__":
 
     # Generate random init_points and term_points
     num_points = 1000
-#    init_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
-#    term_points = np.random.uniform(low=-50, high=50, size=(num_points, 3))
-#    transit_time = ray_tracer.transit_time(np.array([-10, -20, -500]), np.array([-30, -10, -250]))
-    init_points = np.array([[-10,-20,-500]])
-    term_points = np.array([[-30,-10,-250]])
+    init_points = np.array([[8.4,7.03,-500]])
+    term_points = np.array([[0,0,-250]])
 
     import time
 
