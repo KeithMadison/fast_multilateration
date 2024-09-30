@@ -14,7 +14,6 @@ class Optimizer:
 
     def _objective(self, coords: np.ndarray, measured_times: np.ndarray) -> float:
         """Objective function to minimize the error between measured and predicted transit times."""
-        # Broadcast coords to match the shape of antenna_coordinates
         predicted_times = self.ray_tracer.transit_time(np.array([coords] * len(self.antenna_coordinates)), self.antenna_coordinates)
 
         # Compute time difference matrices
@@ -28,13 +27,11 @@ class Optimizer:
         # Return the maximum error
         return np.nanmax(error_matrix)
 
-    def _random_grid_search(self, measured_times: np.ndarray, num_samples: int) -> tuple:
+    def _random_grid_search(self, measured_times: np.ndarray, bounds: np.ndarray, num_samples: int) -> tuple:
         """Perform a random grid search and return the best coordinates and the associated error."""
-        bounds = np.array([[-1000, 1000], [-1000, 1000], [-1000, 0]])
-        
-        # Generate random coordinates in a vectorized way
+        # Generate random coordinates within specified bounds
         random_coords = np.random.uniform(bounds[:, 0], bounds[:, 1], (num_samples, 3))
-        
+
         # Evaluate the objective function for all random coordinates
         errors = np.array([self._objective(coords, measured_times) for coords in random_coords])
 
@@ -45,21 +42,35 @@ class Optimizer:
         
         return best_coords, min_error
 
-    def solve(self, measured_times: np.ndarray, num_samples: int, num_workers: int) -> np.ndarray:
+    def solve(self, measured_times: np.ndarray, num_samples: int, num_workers: int, num_iterations: int) -> np.ndarray:
         """Solve the optimization problem to find coordinates minimizing the objective function."""
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            futures = []
-            for _ in range(num_workers):
-                futures.append(executor.submit(self._random_grid_search, measured_times, num_samples))
-            
-            best_coords = None
-            min_error = float('inf')
-            
-            for future in as_completed(futures):
-                coords, error = future.result()
-                if error < min_error:
-                    min_error = error
-                    best_coords = coords
+        # Initial bounds for the first iteration
+        bounds = np.array([[-1000, 1000], [-1000, 1000], [-1000, 0]])
+        
+        best_coords = None
+        min_error = float('inf')
+        
+        for iteration in range(num_iterations):
+            with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                futures = []
+                for _ in range(num_workers):
+                    futures.append(executor.submit(self._random_grid_search, measured_times, bounds, num_samples))
+                
+                for future in as_completed(futures):
+                    coords, error = future.result()
+                    if error < min_error:
+                        min_error = error
+                        best_coords = coords
+
+            # Print progress
+            print(f"Iteration {iteration + 1}/{num_iterations} - Best Error: {min_error}")
+
+            # Update bounds to focus around the best coordinates found
+            center = best_coords
+            delta = (bounds[:, 1] - bounds[:, 0]) * 0.5 / (iteration + 1)  # Reduce search space gradually
+            bounds = np.array([[center[0] - delta[0], center[0] + delta[0]],
+                               [center[1] - delta[1], center[1] + delta[1]],
+                               [center[2] - delta[2], center[2] + delta[2]]])
 
         return best_coords
 
@@ -86,9 +97,10 @@ if __name__ == "__main__":
 
     # Attempt to find optimal coordinates
     num_samples_per_worker = 10000  # Number of random samples per worker
-    num_workers = 10  # Number of parallel workers
+    num_workers = 4  # Number of parallel workers
+    num_iterations = 20  # Number of iterations for the grid search
 
-    optimal_coordinates = optimizer.solve(measured_times, num_samples_per_worker, num_workers)
+    optimal_coordinates = optimizer.solve(measured_times, num_samples_per_worker, num_workers, num_iterations)
     print("Optimal Coordinates (x, y, z):", optimal_coordinates)
     print("True Coordinates (x, y, z):", x, y, z)
 
