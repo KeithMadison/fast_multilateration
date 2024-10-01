@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import differential_evolution
 from ray_tracer import RayTracer
-from scipy.ndimage import gaussian_filter1d
+import matplotlib.pyplot as plt
 from random import randrange
 
 @dataclass
@@ -14,15 +14,8 @@ class Optimizer:
         self.best_solution = None
         self.best_objective_value = float('inf')
         self.ray_tracer = RayTracer(self.ice_model)
-
-    def _gaussian_kernel(size: int, sigma: float) -> np.ndarray:
-        """Create a Gaussian kernel."""
-        kernel = np.fromfunction(
-            lambda x: (1 / (sigma * np.sqrt(2 * np.pi))) * 
-                       np.exp(-0.5 * ((x - (size - 1) / 2) / sigma) ** 2),
-            (size,)
-        )
-        return kernel / np.sum(kernel)  # Normalize the kernel
+        self.smoothed_objective_value = None  # For storing the smoothed value
+        self.alpha = 0.025  # Smoothing factor for EMA (tune as necessary)
 
     def _objective(self, coords: np.ndarray, measured_times: np.ndarray) -> float:
         """Objective function to minimize the error between measured and predicted transit times."""
@@ -31,7 +24,7 @@ class Optimizer:
 
         # Use in-place operations for array manipulation
         num_antennas = antenna_coords.shape[0]
-    
+
         predicted_times = self.ray_tracer.transit_time(
             np.full_like(antenna_coords, coords), antenna_coords
         )
@@ -45,7 +38,7 @@ class Optimizer:
 
         errors = measured_diff[mask] - predicted_diff[mask]
         sigma = 2.0
-        smoothed_errors = gaussian_filter1d(errors, sigma=sigma)
+        smoothed_errors = errors
         total_error = np.nansum(np.abs(smoothed_errors))
 
         # Update the best solution found
@@ -53,7 +46,17 @@ class Optimizer:
             self.best_objective_value = total_error
             self.best_solution = coords
 
-        return np.log10(total_error + 1)
+        # Apply EMA smoothing to the objective value
+        objective_value = np.log10(total_error + 1)
+        if self.smoothed_objective_value is None:
+            self.smoothed_objective_value = objective_value  # Initialize with the first value
+        else:
+            self.smoothed_objective_value = (
+                self.alpha * objective_value + (1 - self.alpha) * self.smoothed_objective_value
+            )
+
+        # Return the smoothed objective value
+        return self.smoothed_objective_value*2
 
     def solve(self, measured_times: np.ndarray) -> np.ndarray:
         """Solve the optimization problem to find coordinates minimizing the objective function."""
@@ -79,6 +82,26 @@ class Optimizer:
             return self.best_solution, self.best_objective_value
         else:
             raise ValueError("Optimization failed without finding a valid solution.")
+
+    def plot_objective(self, measured_times: np.ndarray, x: float, y: float, z_true: float):
+        """Plot the objective function values as a function of z."""
+        z_values = np.linspace(-1000, 0, 1000)  # Adjust range as necessary
+        objective_values = []
+
+        for z in z_values:
+            coords = np.array([x, y, z])
+            objective_value = self._objective(coords, measured_times)
+            objective_values.append(objective_value)
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(z_values, objective_values, label='Objective Function', color='blue')
+        plt.scatter(z_true, self._objective(np.array([x, y, z_true]), measured_times), color='red', label='True z Value', zorder=5)
+        plt.xlabel('z Value')
+        plt.ylabel('Objective Function Value (log scale)')
+        plt.title('Objective Function as a Function of z')
+        plt.legend()
+        plt.grid()
+        plt.show()
 
 # Example usage
 if __name__ == "__main__":
@@ -106,5 +129,6 @@ if __name__ == "__main__":
         optimal_coordinates = optimizer.solve(measured_times)
         print("Optimal Coordinates (x, y, z):", optimal_coordinates)
         print("True Coordinates (x, y, z):", x, y, z)
+        optimizer.plot_objective(measured_times, x, y, z)
     except ValueError as e:
         print(e)
