@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-import numpy as np
+import warnings
 import time
+import numpy as np
 
 # Suppress warnings (sometimes there is overflow in _calculate_z_coord, etc., none of which are concerning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
