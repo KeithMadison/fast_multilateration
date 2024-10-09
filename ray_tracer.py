@@ -2,6 +2,9 @@ from dataclasses import dataclass
 import numpy as np
 import time
 
+# Suppress warnings (sometimes there is overflow in _calculate_z_coord, etc., none of which are concerning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 @dataclass
 class RayTracer:
     medium_model: np.ndarray
